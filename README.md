@@ -2,7 +2,10 @@
 
 Sound Toggle is an android application that quickly switches the audio mode of your android device between Normal, Vibrate and Silent by using a tile.
 
+*New:* It now supports a "VibrateHush" mode that sets ringer to vibrate and also silences media volume.
+
 # Download
+
 [<img alt="Get it on IzzyOnDroid" src="https://gitlab.com/IzzyOnDroid/repo/-/raw/master/assets/IzzyOnDroid.png" width="240">](https://apt.izzysoft.de/fdroid/index/apk/com.grmasa.soundtoggle)
 [<img alt="Get it on F-Droid" src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" width="240">](https://f-droid.org/packages/com.grmasa.soundtoggle)
 [<img alt="Get it on GitHub" src="https://raw.githubusercontent.com/Kunzisoft/Github-badge/main/get-it-on-github.png" width="240">](https://github.com/grmasa/Sound-Toggle/releases/latest)
@@ -15,4 +18,3 @@ Sound Toggle is an android application that quickly switches the audio mode of y
 ## License
 
 This project is licensed under GPL-3.0-or-later - see the [LICENSE.md](LICENSE.md) file for details
-

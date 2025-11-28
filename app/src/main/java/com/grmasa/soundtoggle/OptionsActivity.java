@@ -6,17 +6,20 @@ import android.os.Bundle;
 import android.view.MenuItem;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
 public class OptionsActivity extends AppCompatActivity {
 
-    private CheckBox cbExcludeNormal, cbExcludeVibrate, cbExcludeSilent;
+    private final List<CheckBox> checkBoxes = new ArrayList<>();
     private static final String KEY_EXCLUDED_MODES = "excluded_modes";
 
     @Override
@@ -26,9 +29,15 @@ public class OptionsActivity extends AppCompatActivity {
 
         Objects.requireNonNull(getSupportActionBar()).setDisplayHomeAsUpEnabled(true);
 
-        cbExcludeNormal = findViewById(R.id.cb_exclude_normal);
-        cbExcludeVibrate = findViewById(R.id.cb_exclude_vibrate);
-        cbExcludeSilent = findViewById(R.id.cb_exclude_silent);
+        LinearLayout checkBoxLayout = findViewById(R.id.ll_exclude_modes);
+        for (SoundModes.Mode mode : SoundModes.MODES) {
+            CheckBox checkBox = new CheckBox(this);
+            checkBox.setText(mode.name);
+            checkBox.setTag(mode.name);
+            checkBoxLayout.addView(checkBox);
+            checkBoxes.add(checkBox);
+        }
+
         Button btnSave = findViewById(R.id.btn_save_exclusions);
 
         loadExclusions();
@@ -44,16 +53,18 @@ public class OptionsActivity extends AppCompatActivity {
         SharedPreferences sharedpreferences = getSharedPreferences("prefs", Context.MODE_PRIVATE);
         Set<String> excluded = sharedpreferences.getStringSet(KEY_EXCLUDED_MODES, new HashSet<>());
 
-        cbExcludeNormal.setChecked(excluded.contains("NORMAL"));
-        cbExcludeVibrate.setChecked(excluded.contains("VIBRATE"));
-        cbExcludeSilent.setChecked(excluded.contains("SILENT"));
+        for (CheckBox checkBox : checkBoxes) {
+            checkBox.setChecked(excluded.contains(checkBox.getTag().toString()));
+        }
     }
 
     private void saveExclusions() {
         Set<String> excluded = new HashSet<>();
-        if (cbExcludeNormal.isChecked()) excluded.add("NORMAL");
-        if (cbExcludeVibrate.isChecked()) excluded.add("VIBRATE");
-        if (cbExcludeSilent.isChecked()) excluded.add("SILENT");
+        for (CheckBox checkBox : checkBoxes) {
+            if (checkBox.isChecked()) {
+                excluded.add(checkBox.getTag().toString());
+            }
+        }
 
         SharedPreferences prefs = getSharedPreferences("prefs", MODE_PRIVATE);
         prefs.edit().putStringSet(KEY_EXCLUDED_MODES, excluded).apply();

@@ -8,18 +8,34 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.drawable.Icon;
 import android.media.AudioManager;
+import android.os.Build;
+import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 
-import java.util.Arrays;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 public class SoundToggleService extends TileService {
 
     private final BroadcastReceiver broadcastReceiver = new Receiver();
+
+    static class ModeState {
+        public int mediaVolume;
+
+        public ModeState() {
+            this.mediaVolume = -1;
+        }
+    }
+
+    ModeState[] modeStates = new ModeState[SoundModes.MODES.length];
+
+    public SoundToggleService() {
+        for (int i = 0; i < SoundModes.MODES.length; ++i) {
+            modeStates[i] = new ModeState();
+        }
+    }
 
     class Receiver extends BroadcastReceiver {
         public void onReceive(Context context, Intent intent) {
@@ -27,31 +43,64 @@ public class SoundToggleService extends TileService {
         }
     }
 
-    private AudioManager getAudioManager() {
+    public AudioManager getAudioManager() {
         return (AudioManager) getSystemService(Context.AUDIO_SERVICE);
     }
 
-    private int setIcon() {
-        int ringerMode = getAudioManager().getRingerMode();
-        return ringerMode != 0 ? ringerMode != 1
-                ? R.drawable.ic_audio_vol : R.drawable.ic_audio_ring_notif_vibrate : R.drawable.ic_audio_vol_mute;
+    public int getCurrentMode() {
+        AudioManager am = getAudioManager();
+        for (int i = 0; i < SoundModes.MODES.length; ++i) {
+            if (SoundModes.MODES[i].condition.test(am)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public void switchMode(int from, int to) {
+        AudioManager am = getAudioManager();
+        SoundModes.Mode fromMode = SoundModes.MODES[from];
+        if (fromMode.restoreVolume) {
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, modeStates[from].mediaVolume, 0);
+        }
+        SoundModes.Mode toMode = SoundModes.MODES[to];
+        if (toMode.restoreVolume) {
+            modeStates[to].mediaVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+        }
+        toMode.activate.accept(this);
     }
 
     public void updateTile() {
         Tile qsTile = getQsTile();
-        int ringerMode = getAudioManager().getRingerMode();
-        String tileLabel = ringerMode != 0 ? ringerMode != 1 ? ringerMode != 2
-                ? "Unknown" : "Normal" : "Vibrate" : "Silent";
-        qsTile.setContentDescription(tileLabel);
-        qsTile.setLabel(tileLabel);
-        qsTile.setIcon(Icon.createWithResource(this, setIcon()));
-        qsTile.updateTile();
-        qsTile.setState(2);
+        AudioManager am = getAudioManager();
+
+        int curMode = getCurrentMode();
+        if (curMode >= 0) {
+            SoundModes.Mode mode = SoundModes.MODES[curMode];
+            qsTile.setLabel(mode.name);
+            qsTile.setContentDescription(mode.name);
+            qsTile.setIcon(Icon.createWithResource(this, mode.icon));
+            qsTile.setState(Tile.STATE_ACTIVE);
+            qsTile.updateTile();
+        } else {
+            // Fallback for unknown state
+            qsTile.setLabel("Unknown");
+            qsTile.setState(Tile.STATE_UNAVAILABLE);
+            qsTile.updateTile();
+
+        }
     }
 
-    private void vibrate() {
+    public void vibrate() {
         Vibrator vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-        vibrator.vibrate(500);
+        if (vibrator == null) return;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE));
+        } else {
+            // deprecated in API 26
+            vibrator.vibrate(500);
+        }
     }
 
     public void onClick() {
@@ -63,51 +112,24 @@ public class SoundToggleService extends TileService {
             return;
         }
 
-        int currentMode = getAudioManager().getRingerMode();
-        Set<Integer> excludedModes = loadExcludedModes();
+        int curMode = getCurrentMode();
+        int currentModeIndex =getCurrentMode();
 
-        int nextMode = getNextAllowedRingerMode(currentMode, excludedModes);
-        if (nextMode != currentMode) {
-            if (nextMode == AudioManager.RINGER_MODE_VIBRATE || nextMode == AudioManager.RINGER_MODE_NORMAL) {
-                vibrate();
+        Set<String> excludedModes = loadExcludedModeNames();
+
+        for (int i = 1; i <= SoundModes.MODES.length; i++) {
+            int nextIndex = (currentModeIndex + i) % SoundModes.MODES.length;
+            SoundModes.Mode nextMode = SoundModes.MODES[nextIndex];
+            if (!excludedModes.contains(nextMode.name)) {
+                switchMode(curMode, nextIndex);
+                break;
             }
-            getAudioManager().setRingerMode(nextMode);
         }
-        updateTile();
     }
 
-    private Set<Integer> loadExcludedModes() {
+    private Set<String> loadExcludedModeNames() {
         SharedPreferences prefs = getSharedPreferences("prefs", MODE_PRIVATE);
-        Set<String> excludedStrings = prefs.getStringSet("excluded_modes", new HashSet<>());
-
-        Set<Integer> excluded = new HashSet<>();
-        for (String s : excludedStrings) {
-            switch (s) {
-                case "NORMAL" -> excluded.add(AudioManager.RINGER_MODE_NORMAL);
-                case "VIBRATE" -> excluded.add(AudioManager.RINGER_MODE_VIBRATE);
-                case "SILENT" -> excluded.add(AudioManager.RINGER_MODE_SILENT);
-            }
-        }
-        return excluded;
-    }
-
-    private int getNextAllowedRingerMode(int currentMode, Set<Integer> excluded) {
-        List<Integer> allModes = Arrays.asList(
-                AudioManager.RINGER_MODE_NORMAL,
-                AudioManager.RINGER_MODE_VIBRATE,
-                AudioManager.RINGER_MODE_SILENT
-        );
-
-        int currentIndex = allModes.indexOf(currentMode);
-        int size = allModes.size();
-
-        for (int i = 1; i <= size; i++) {
-            int nextMode = allModes.get((currentIndex + i) % size);
-            if (!excluded.contains(nextMode)) {
-                return nextMode;
-            }
-        }
-        return currentMode;
+        return prefs.getStringSet("excluded_modes", new HashSet<>());
     }
 
     public void onStartListening() {
