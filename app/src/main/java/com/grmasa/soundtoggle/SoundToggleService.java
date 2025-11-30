@@ -29,12 +29,21 @@ public class SoundToggleService extends TileService {
         }
     }
 
+    int lastMode = -1;   // Remember the last mode
+    ModeState lastModeState = new ModeState(); // Remember last mode state to detect if it was manually changed
+
     ModeState[] modeStates = new ModeState[SoundModes.MODES.length];
 
     public SoundToggleService() {
         for (int i = 0; i < SoundModes.MODES.length; ++i) {
             modeStates[i] = new ModeState();
         }
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        loadState();
     }
 
     class Receiver extends BroadcastReceiver {
@@ -57,22 +66,37 @@ public class SoundToggleService extends TileService {
         return -1;
     }
 
+    private boolean wasModeManuallyChanged(int from) {
+        AudioManager am = getAudioManager();
+
+        int curVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+        return  lastMode != from || lastModeState.mediaVolume != curVolume;
+    }
+
     public void switchMode(int from, int to) {
         AudioManager am = getAudioManager();
-        SoundModes.Mode fromMode = SoundModes.MODES[from];
-        if (fromMode.restoreVolume) {
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, modeStates[from].mediaVolume, 0);
+        if (from >= 0) {
+            SoundModes.Mode fromMode = SoundModes.MODES[from];
+            // Restore the volume only if the mode and/or volume weren't manually changed in the meantime.
+            if (fromMode.restoreVolume && !wasModeManuallyChanged(from)) {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, modeStates[from].mediaVolume, 0);
+            }
         }
-        SoundModes.Mode toMode = SoundModes.MODES[to];
-        if (toMode.restoreVolume) {
-            modeStates[to].mediaVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+        if (to >= 0) {
+            SoundModes.Mode toMode = SoundModes.MODES[to];
+            if (toMode.restoreVolume) {
+                modeStates[to].mediaVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            }
+            toMode.activate.accept(this);
         }
-        toMode.activate.accept(this);
+        lastMode = to;
+        lastModeState.mediaVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+        saveState();
+
     }
 
     public void updateTile() {
         Tile qsTile = getQsTile();
-        AudioManager am = getAudioManager();
 
         int curMode = getCurrentMode();
         if (curMode >= 0) {
@@ -112,8 +136,7 @@ public class SoundToggleService extends TileService {
             return;
         }
 
-        int curMode = getCurrentMode();
-        int currentModeIndex =getCurrentMode();
+        int currentModeIndex = getCurrentMode();
 
         Set<String> excludedModes = loadExcludedModeNames();
 
@@ -121,7 +144,7 @@ public class SoundToggleService extends TileService {
             int nextIndex = (currentModeIndex + i) % SoundModes.MODES.length;
             SoundModes.Mode nextMode = SoundModes.MODES[nextIndex];
             if (!excludedModes.contains(nextMode.name)) {
-                switchMode(curMode, nextIndex);
+                switchMode(currentModeIndex, nextIndex);
                 break;
             }
         }
@@ -130,6 +153,30 @@ public class SoundToggleService extends TileService {
     private Set<String> loadExcludedModeNames() {
         SharedPreferences prefs = getSharedPreferences("prefs", MODE_PRIVATE);
         return prefs.getStringSet("excluded_modes", new HashSet<>());
+    }
+
+    private void loadState() {
+        SharedPreferences prefs = getSharedPreferences("prefs", MODE_PRIVATE);
+        for (int i = 0; i < SoundModes.MODES.length; i++) {
+            modeStates[i].mediaVolume = prefs.getInt("mediaVolume_" + i, -1);
+        }
+
+        lastMode = prefs.getInt("lastMode", -1);
+        lastModeState.mediaVolume = prefs.getInt("lastMode_mediaVolume", -1);
+    }
+
+    private void saveState() {
+        SharedPreferences prefs = getSharedPreferences("prefs", MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putInt("lastMode", lastMode);
+        editor.putInt("lastMode_mediaVolume", lastModeState.mediaVolume);
+
+        if (lastMode >= 0) {
+            editor.putInt("mediaVolume_" + lastMode, modeStates[lastMode].mediaVolume);
+        }
+
+        editor.putString("tutorial", "done");
+        editor.apply();
     }
 
     public void onStartListening() {
